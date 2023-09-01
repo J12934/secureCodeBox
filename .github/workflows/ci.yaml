@@ -16,15 +16,14 @@ on:
 # https://github.com/actions/virtual-environments/blob/main/images/linux/Ubuntu2004-Readme.md
 
 env:
-  # ---- Language Versions ----
-
-  GO_VERSION: "1.19"
+  # ---- Language & Tool Versions ----
+  GO_VERSION: "1.21"
   PYTHON_VERSION: "3.9.16"
   NVM_VERSION: "0.39.3" # Does not need to be updated as often as the Node.js version or the NPM version
-  KIND_NODE_IMAGE: "kindest/node:v1.27.3@sha256:9dd3392d79af1b084671b05bcf65b21de476256ad1dcc853d9f3b10b4ac52dde"
+  KIND_NODE_IMAGE: "kindest/node:v1.28.0@sha256:9f3ff58f19dcf1a0611d11e8ac989fdb30a28f40f236f59f0bea31fb956ccf5c"
   KIND_BINARY_VERSION: "v0.20.0"
-  KUBECTL_VERSION: "v1.27.4"
-  HELM_VERSION: "v3.12.2"
+  KUBECTL_VERSION: "v1.28.0"
+  HELM_VERSION: "v3.12.3"
 
 jobs:
   # ---- NVM Setup ----
@@ -199,7 +198,7 @@ jobs:
   auto-discovery-kubernetes-secret-extraction-container:
     name: "Autodiscovery | Kubernetes | SecretExtractionInitContainer"
     runs-on: ubuntu-22.04
-    needs: 
+    needs:
       - nvm-setup
       - k8s-setup
     steps:
@@ -778,7 +777,6 @@ jobs:
         run: |
           docker load --input /tmp/hook-sdk.tar
           docker images | grep sdk
-
 
       # ---- K8s Cluster Setup ---- #
 
