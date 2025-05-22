@@ -24,6 +24,7 @@ import (
 	executionv1 "github.com/secureCodeBox/secureCodeBox/operator/apis/execution/v1"
 	executioncontrollers "github.com/secureCodeBox/secureCodeBox/operator/controllers/execution"
 	scancontroller "github.com/secureCodeBox/secureCodeBox/operator/controllers/execution/scans"
+	file_storage "github.com/secureCodeBox/secureCodeBox/operator/internal/file_storage"
 	"github.com/secureCodeBox/secureCodeBox/operator/internal/telemetry"
 	//+kubebuilder:scaffold:imports
 )
@@ -70,10 +71,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	s3FileStorage, err := file_storage.NewS3FileStorage(mgr.GetLogger().WithName("S3FileStorage"))
+	if err != nil {
+		setupLog.Error(err, "unable to create S3 File Storage")
+		os.Exit(1)
+	}
+
 	if err = (&scancontroller.ScanReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("execution").WithName("Scan"),
-		Scheme: mgr.GetScheme(),
+		Client:      mgr.GetClient(),
+		Log:         ctrl.Log.WithName("controllers").WithName("execution").WithName("Scan"),
+		Scheme:      mgr.GetScheme(),
+		FileStorage: s3FileStorage,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Scan")
 		os.Exit(1)

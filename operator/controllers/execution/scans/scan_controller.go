@@ -5,13 +5,7 @@
 package scancontrollers
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"net/url"
-	"os"
-	"strings"
-	"text/template"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -23,9 +17,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	executionv1 "github.com/secureCodeBox/secureCodeBox/operator/apis/execution/v1"
+	file_storage "github.com/secureCodeBox/secureCodeBox/operator/internal/file_storage"
 )
 
 // ScanReconciler reconciles a Scan object
@@ -33,7 +26,7 @@ type ScanReconciler struct {
 	client.Client
 	Log         logr.Logger
 	Scheme      *runtime.Scheme
-	MinioClient minio.Client
+	FileStorage file_storage.FileStorage
 }
 
 var (
@@ -137,23 +130,17 @@ func (r *ScanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{}, nil
 }
 
-var errNotFound = "The specified key does not exist."
-
 func (r *ScanReconciler) handleFinalizer(scan *executionv1.Scan) error {
 	if containsString(scan.ObjectMeta.Finalizers, s3StorageFinalizer) {
-		bucketName := os.Getenv("S3_BUCKET")
 		r.Log.V(3).Info("Deleting External Files from FileStorage", "ScanUID", scan.UID)
 
-		rawResultUrl := getPresignedUrlPath(*scan, scan.Status.RawResultFile)
-		err := r.MinioClient.RemoveObject(context.Background(), bucketName, rawResultUrl, minio.RemoveObjectOptions{})
-		if err != nil && err.Error() != errNotFound {
+		err := r.FileStorage.DeleteFile(*scan, scan.Status.RawResultFile)
+		if err != nil {
 			return err
 		}
 
-		findingsJsonUrl := getPresignedUrlPath(*scan, "findings.json")
-		err = r.MinioClient.RemoveObject(context.Background(), bucketName, findingsJsonUrl, minio.RemoveObjectOptions{})
-
-		if err != nil && err.Error() != errNotFound {
+		err = r.FileStorage.DeleteFile(*scan, "findings.json")
+		if err != nil {
 			return err
 		}
 
@@ -163,84 +150,6 @@ func (r *ScanReconciler) handleFinalizer(scan *executionv1.Scan) error {
 		}
 	}
 	return nil
-}
-
-// PresignedGetURL returns a presigned URL from the s3 (or compatible) serice.
-func (r *ScanReconciler) PresignedGetURL(scan executionv1.Scan, filename string, duration time.Duration) (string, error) {
-	bucketName := os.Getenv("S3_BUCKET")
-
-	fileUrl := getPresignedUrlPath(scan, filename)
-	reqParams := make(url.Values)
-	rawResultDownloadURL, err := r.MinioClient.PresignedGetObject(context.Background(), bucketName, fileUrl, duration, reqParams)
-	if err != nil {
-		r.Log.Error(err, "Could not get presigned url from s3 or compatible storage provider")
-		return "", err
-	}
-	return rawResultDownloadURL.String(), nil
-}
-
-// PresignedPutURL returns a presigned URL from the s3 (or compatible) serice.
-func (r *ScanReconciler) PresignedPutURL(scan executionv1.Scan, filename string, duration time.Duration) (string, error) {
-	bucketName := os.Getenv("S3_BUCKET")
-	fileUrl := getPresignedUrlPath(scan, filename)
-
-	rawResultDownloadURL, err := r.MinioClient.PresignedPutObject(context.Background(), bucketName, fileUrl, duration)
-	if err != nil {
-		r.Log.Error(err, "Could not get presigned url from s3 or compatible storage provider")
-		return "", err
-	}
-	return rawResultDownloadURL.String(), nil
-}
-
-// PresignedHeadURL returns a presigned URL from the s3 (or compatible) serice.
-func (r *ScanReconciler) PresignedHeadURL(scan executionv1.Scan, filename string, duration time.Duration) (string, error) {
-	bucketName := os.Getenv("S3_BUCKET")
-	fileUrl := getPresignedUrlPath(scan, filename)
-
-	rawResultHeadURL, err := r.MinioClient.PresignedHeadObject(context.Background(), bucketName, fileUrl, duration, nil)
-	if err != nil {
-		r.Log.Error(err, "Could not get presigned url from s3 or compatible storage provider")
-		return "", err
-	}
-	return rawResultHeadURL.String(), nil
-}
-
-func (r *ScanReconciler) initS3Connection() *minio.Client {
-	endpoint := os.Getenv("S3_ENDPOINT")
-	if os.Getenv("S3_PORT") != "" {
-		endpoint = fmt.Sprintf("%s:%s", endpoint, os.Getenv("S3_PORT"))
-	}
-	// Only deactivate useSSL when explicitly set to false
-	useSSL := true
-	if os.Getenv("S3_USE_SSL") == "false" {
-		useSSL = false
-	}
-
-	var creds *credentials.Credentials
-
-	if authType, ok := os.LookupEnv("S3_AUTH_TYPE"); ok && strings.ToLower(authType) == "aws-irsa" {
-		stsEndpoint := ""
-		if configuredStsEndpoint, ok := os.LookupEnv("S3_AWS_IRSA_STS_ENDPOINT"); ok {
-			stsEndpoint = configuredStsEndpoint
-		}
-
-		r.Log.Info("Using AWS IRSA ServiceAccount Bindung for S3 Authentication", "sts", stsEndpoint)
-		creds = credentials.NewIAM(stsEndpoint)
-	} else {
-		creds = credentials.NewEnvMinio()
-	}
-
-	// Initialize minio client object.
-	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  creds,
-		Secure: useSSL,
-	})
-	if err != nil {
-		r.Log.Error(err, "Could not create minio client to communicate with s3 or compatible storage provider")
-		panic(err)
-	}
-
-	return minioClient
 }
 
 func updateScanStateMetrics(scan executionv1.Scan) {
@@ -281,10 +190,6 @@ func (r *ScanReconciler) updateScanStatus(ctx context.Context, scan *executionv1
 
 // SetupWithManager sets up the controller and initializes every thing it needs
 func (r *ScanReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.MinioClient = *r.initS3Connection()
-
-	// Todo: Better config management
-
 	ctx := context.Background()
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &batch.Job{}, ownerKey, func(rawObj client.Object) []string {
 		// grab the job object, extract the owner...
@@ -328,38 +233,4 @@ func containsString(slice []string, s string) bool {
 		}
 	}
 	return false
-}
-
-func getPresignedUrlPath(scan executionv1.Scan, filename string) string {
-	urlTemplate, ok := os.LookupEnv("S3_URL_TEMPLATE")
-	if !ok {
-		// use default when environment variable is not set
-		urlTemplate = "scan-{{ .Scan.UID }}/{{ .Filename }}"
-	}
-	return executeUrlTemplate(urlTemplate, scan, filename)
-}
-
-func executeUrlTemplate(urlTemplate string, scan executionv1.Scan, filename string) string {
-	type Template struct {
-		Scan     executionv1.Scan
-		Filename string
-	}
-
-	tmpl, err := template.New(urlTemplate).Parse(urlTemplate)
-	if err != nil {
-		panic(err)
-	} else {
-		var rawOutput bytes.Buffer
-		templateArgs := Template{
-			Scan:     scan,
-			Filename: filename,
-		}
-
-		err = tmpl.Execute(&rawOutput, templateArgs)
-		if err != nil {
-			panic(err)
-		}
-		output := rawOutput.String()
-		return output
-	}
 }
