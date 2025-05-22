@@ -16,6 +16,32 @@ import (
 	executionv1 "github.com/secureCodeBox/secureCodeBox/operator/apis/execution/v1"
 )
 
+// AuthTypeEnum defines supported authentication types for S3
+type AuthTypeEnum int
+
+const (
+	AuthTypeAccessAndSecretKey AuthTypeEnum = iota
+	AuthTypeAWSIRSA
+)
+
+func (a AuthTypeEnum) String() string {
+	switch a {
+	case AuthTypeAWSIRSA:
+		return "aws-irsa"
+	default:
+		return "access-and-secret-key"
+	}
+}
+
+func ParseAuthType(s string) AuthTypeEnum {
+	switch strings.ToLower(s) {
+	case "aws-irsa":
+		return AuthTypeAWSIRSA
+	default:
+		return AuthTypeAccessAndSecretKey
+	}
+}
+
 type S3FileStorage struct {
 	MinioClient *minio.Client
 	Log         logr.Logger
@@ -23,26 +49,45 @@ type S3FileStorage struct {
 }
 
 type S3Config struct {
-	Endpoint    string
-	Port        string
-	UseSSL      bool
-	AuthType    string
-	StsEndpoint string
-	Bucket      string
+	// Endpoint is the S3 hostname or IP address e.g. s3.amazonaws.com
+	Endpoint string
+	// Port is the S3 port e.g. 443
+	Port string
+	// UseSSL is true if the S3 endpoint uses TLS
+	UseSSL bool
+	// Bucket is the S3 bucket name e.g. securecodebox-results
+	Bucket string
+
+	// UrlTemplate is the template to use for the S3 object URL, if not set, the default is "scan-{{ .Scan.UID }}/{{ .Filename }}"
 	UrlTemplate string
+	// AuthType is the authentication type to use for S3
+	AuthType AuthTypeEnum
+	// StsEndpoint is the STS endpoint to use for AWS IRSA authentication only relevant if AuthType is set to aws-irsa
+	StsEndpoint string
 }
 
-func ParseS3Config() *S3Config {
+func ParseS3Config() (*S3Config, error) {
 	endpoint := os.Getenv("S3_ENDPOINT")
+	if endpoint == "" {
+		return nil, fmt.Errorf("S3_ENDPOINT is required")
+	}
+	bucket := os.Getenv("S3_BUCKET")
+	if bucket == "" {
+		return nil, fmt.Errorf("S3_BUCKET is required")
+	}
 	port := os.Getenv("S3_PORT")
 	useSSL := true
 	if os.Getenv("S3_USE_SSL") == "false" {
 		useSSL = false
 	}
-	authType := os.Getenv("S3_AUTH_TYPE")
+	authTypeStr := os.Getenv("S3_AUTH_TYPE")
+	authType := ParseAuthType(authTypeStr)
+
 	stsEndpoint := os.Getenv("S3_AWS_IRSA_STS_ENDPOINT")
-	bucket := os.Getenv("S3_BUCKET")
 	urlTemplate := os.Getenv("S3_URL_TEMPLATE")
+	if urlTemplate == "" {
+		urlTemplate = "scan-{{ .Scan.UID }}/{{ .Filename }}"
+	}
 
 	return &S3Config{
 		Endpoint:    endpoint,
@@ -52,30 +97,37 @@ func ParseS3Config() *S3Config {
 		StsEndpoint: stsEndpoint,
 		Bucket:      bucket,
 		UrlTemplate: urlTemplate,
+	}, nil
+}
+func NewS3FileStorage(logger logr.Logger) (*S3FileStorage, error) {
+	config, err := ParseS3Config()
+	if err != nil {
+		logger.Error(err, "Invalid S3 configuration")
+		return nil, err
 	}
+	return NewS3FileStorageWithConfig(logger, config)
 }
 
-func NewS3FileStorage(logger logr.Logger) (*S3FileStorage, error) {
-	config := ParseS3Config()
+func NewS3FileStorageWithConfig(logger logr.Logger, config *S3Config) (*S3FileStorage, error) {
+	var creds *credentials.Credentials
+	switch config.AuthType {
+	case AuthTypeAWSIRSA:
+		stsEndpoint := config.StsEndpoint
+		logger.Info("Using AWS IRSA ServiceAccount Bindung for S3 Authentication", "sts", stsEndpoint)
+		creds = credentials.NewIAM(stsEndpoint)
+	case AuthTypeAccessAndSecretKey:
+		creds = credentials.NewEnvMinio()
+	default:
+		return nil, fmt.Errorf("unsupported S3_AUTH_TYPE: %v", config.AuthType)
+	}
+
 	endpoint := config.Endpoint
 	if config.Port != "" {
 		endpoint = fmt.Sprintf("%s:%s", endpoint, config.Port)
 	}
-	useSSL := config.UseSSL
-
-	var creds *credentials.Credentials
-
-	if strings.ToLower(config.AuthType) == "aws-irsa" {
-		stsEndpoint := config.StsEndpoint
-		logger.Info("Using AWS IRSA ServiceAccount Bindung for S3 Authentication", "sts", stsEndpoint)
-		creds = credentials.NewIAM(stsEndpoint)
-	} else {
-		creds = credentials.NewEnvMinio()
-	}
-
 	minioClient, err := minio.New(endpoint, &minio.Options{
 		Creds:  creds,
-		Secure: useSSL,
+		Secure: config.UseSSL,
 	})
 	if err != nil {
 		logger.Error(err, "Could not create minio client to communicate with s3 or compatible storage provider")
@@ -140,9 +192,6 @@ func (r *S3FileStorage) DeleteFile(scan executionv1.Scan, filename string) error
 
 func (r *S3FileStorage) getPresignedUrlPath(scan executionv1.Scan, filename string) string {
 	urlTemplate := r.Config.UrlTemplate
-	if urlTemplate == "" {
-		urlTemplate = "scan-{{ .Scan.UID }}/{{ .Filename }}"
-	}
 	return executeUrlTemplate(urlTemplate, scan, filename)
 }
 
