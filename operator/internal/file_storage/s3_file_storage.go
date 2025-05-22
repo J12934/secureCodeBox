@@ -19,34 +19,60 @@ import (
 type S3FileStorage struct {
 	MinioClient *minio.Client
 	Log         logr.Logger
+	Config      *S3Config
 }
 
-func NewS3FileStorage(logger logr.Logger) (*S3FileStorage, error) {
+type S3Config struct {
+	Endpoint    string
+	Port        string
+	UseSSL      bool
+	AuthType    string
+	StsEndpoint string
+	Bucket      string
+	UrlTemplate string
+}
+
+func ParseS3Config() *S3Config {
 	endpoint := os.Getenv("S3_ENDPOINT")
-	if os.Getenv("S3_PORT") != "" {
-		endpoint = fmt.Sprintf("%s:%s", endpoint, os.Getenv("S3_PORT"))
-	}
-	// Only deactivate useSSL when explicitly set to false
+	port := os.Getenv("S3_PORT")
 	useSSL := true
 	if os.Getenv("S3_USE_SSL") == "false" {
 		useSSL = false
 	}
+	authType := os.Getenv("S3_AUTH_TYPE")
+	stsEndpoint := os.Getenv("S3_AWS_IRSA_STS_ENDPOINT")
+	bucket := os.Getenv("S3_BUCKET")
+	urlTemplate := os.Getenv("S3_URL_TEMPLATE")
+
+	return &S3Config{
+		Endpoint:    endpoint,
+		Port:        port,
+		UseSSL:      useSSL,
+		AuthType:    authType,
+		StsEndpoint: stsEndpoint,
+		Bucket:      bucket,
+		UrlTemplate: urlTemplate,
+	}
+}
+
+func NewS3FileStorage(logger logr.Logger) (*S3FileStorage, error) {
+	config := ParseS3Config()
+	endpoint := config.Endpoint
+	if config.Port != "" {
+		endpoint = fmt.Sprintf("%s:%s", endpoint, config.Port)
+	}
+	useSSL := config.UseSSL
 
 	var creds *credentials.Credentials
 
-	if authType, ok := os.LookupEnv("S3_AUTH_TYPE"); ok && strings.ToLower(authType) == "aws-irsa" {
-		stsEndpoint := ""
-		if configuredStsEndpoint, ok := os.LookupEnv("S3_AWS_IRSA_STS_ENDPOINT"); ok {
-			stsEndpoint = configuredStsEndpoint
-		}
-
+	if strings.ToLower(config.AuthType) == "aws-irsa" {
+		stsEndpoint := config.StsEndpoint
 		logger.Info("Using AWS IRSA ServiceAccount Bindung for S3 Authentication", "sts", stsEndpoint)
 		creds = credentials.NewIAM(stsEndpoint)
 	} else {
 		creds = credentials.NewEnvMinio()
 	}
 
-	// Initialize minio client object.
 	minioClient, err := minio.New(endpoint, &minio.Options{
 		Creds:  creds,
 		Secure: useSSL,
@@ -58,14 +84,15 @@ func NewS3FileStorage(logger logr.Logger) (*S3FileStorage, error) {
 
 	return &S3FileStorage{
 		MinioClient: minioClient,
+		Log:         logger,
+		Config:      config,
 	}, nil
 }
 
 // PresignedGetURL returns a presigned URL from the s3 (or compatible) serice.
 func (r *S3FileStorage) PresignedGetURL(scan executionv1.Scan, filename string, duration time.Duration) (string, error) {
-	bucketName := os.Getenv("S3_BUCKET")
-
-	fileUrl := getPresignedUrlPath(scan, filename)
+	bucketName := r.Config.Bucket
+	fileUrl := r.getPresignedUrlPath(scan, filename)
 	reqParams := make(url.Values)
 	rawResultDownloadURL, err := r.MinioClient.PresignedGetObject(context.Background(), bucketName, fileUrl, duration, reqParams)
 	if err != nil {
@@ -77,8 +104,8 @@ func (r *S3FileStorage) PresignedGetURL(scan executionv1.Scan, filename string, 
 
 // PresignedPutURL returns a presigned URL from the s3 (or compatible) serice.
 func (r *S3FileStorage) PresignedPutURL(scan executionv1.Scan, filename string, duration time.Duration) (string, error) {
-	bucketName := os.Getenv("S3_BUCKET")
-	fileUrl := getPresignedUrlPath(scan, filename)
+	bucketName := r.Config.Bucket
+	fileUrl := r.getPresignedUrlPath(scan, filename)
 
 	rawResultDownloadURL, err := r.MinioClient.PresignedPutObject(context.Background(), bucketName, fileUrl, duration)
 	if err != nil {
@@ -90,8 +117,8 @@ func (r *S3FileStorage) PresignedPutURL(scan executionv1.Scan, filename string, 
 
 // PresignedHeadURL returns a presigned URL from the s3 (or compatible) serice.
 func (r *S3FileStorage) PresignedHeadURL(scan executionv1.Scan, filename string, duration time.Duration) (string, error) {
-	bucketName := os.Getenv("S3_BUCKET")
-	fileUrl := getPresignedUrlPath(scan, filename)
+	bucketName := r.Config.Bucket
+	fileUrl := r.getPresignedUrlPath(scan, filename)
 
 	rawResultHeadURL, err := r.MinioClient.PresignedHeadObject(context.Background(), bucketName, fileUrl, duration, nil)
 	if err != nil {
@@ -102,8 +129,8 @@ func (r *S3FileStorage) PresignedHeadURL(scan executionv1.Scan, filename string,
 }
 
 func (r *S3FileStorage) DeleteFile(scan executionv1.Scan, filename string) error {
-	bucketName := os.Getenv("S3_BUCKET")
-	pathInBucket := getPresignedUrlPath(scan, scan.Status.RawResultFile)
+	bucketName := r.Config.Bucket
+	pathInBucket := r.getPresignedUrlPath(scan, scan.Status.RawResultFile)
 	err := r.MinioClient.RemoveObject(context.Background(), bucketName, pathInBucket, minio.RemoveObjectOptions{})
 	if err != nil && err.Error() != "The specified key does not exist." {
 		return err
@@ -111,10 +138,9 @@ func (r *S3FileStorage) DeleteFile(scan executionv1.Scan, filename string) error
 	return nil
 }
 
-func getPresignedUrlPath(scan executionv1.Scan, filename string) string {
-	urlTemplate, ok := os.LookupEnv("S3_URL_TEMPLATE")
-	if !ok {
-		// use default when environment variable is not set
+func (r *S3FileStorage) getPresignedUrlPath(scan executionv1.Scan, filename string) string {
+	urlTemplate := r.Config.UrlTemplate
+	if urlTemplate == "" {
 		urlTemplate = "scan-{{ .Scan.UID }}/{{ .Filename }}"
 	}
 	return executeUrlTemplate(urlTemplate, scan, filename)
