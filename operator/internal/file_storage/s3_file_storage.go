@@ -144,9 +144,9 @@ func NewS3FileStorageWithConfig(logger logr.Logger, config *S3Config) (*S3FileSt
 // PresignedGetURL returns a presigned URL from the s3 (or compatible) serice.
 func (r *S3FileStorage) PresignedGetURL(scan executionv1.Scan, filename string, duration time.Duration) (string, error) {
 	bucketName := r.Config.Bucket
-	fileUrl := r.getPresignedUrlPath(scan, filename)
+	pathInBucket := r.getFilePathInBucket(scan, filename)
 	reqParams := make(url.Values)
-	rawResultDownloadURL, err := r.MinioClient.PresignedGetObject(context.Background(), bucketName, fileUrl, duration, reqParams)
+	rawResultDownloadURL, err := r.MinioClient.PresignedGetObject(context.Background(), bucketName, pathInBucket, duration, reqParams)
 	if err != nil {
 		r.Log.Error(err, "Could not get presigned url from s3 or compatible storage provider")
 		return "", err
@@ -156,10 +156,8 @@ func (r *S3FileStorage) PresignedGetURL(scan executionv1.Scan, filename string, 
 
 // PresignedPutURL returns a presigned URL from the s3 (or compatible) serice.
 func (r *S3FileStorage) PresignedPutURL(scan executionv1.Scan, filename string, duration time.Duration) (string, error) {
-	bucketName := r.Config.Bucket
-	fileUrl := r.getPresignedUrlPath(scan, filename)
-
-	rawResultDownloadURL, err := r.MinioClient.PresignedPutObject(context.Background(), bucketName, fileUrl, duration)
+	pathInBucket := r.getFilePathInBucket(scan, filename)
+	rawResultDownloadURL, err := r.MinioClient.PresignedPutObject(context.Background(), r.Config.Bucket, pathInBucket, duration)
 	if err != nil {
 		r.Log.Error(err, "Could not get presigned url from s3 or compatible storage provider")
 		return "", err
@@ -169,10 +167,8 @@ func (r *S3FileStorage) PresignedPutURL(scan executionv1.Scan, filename string, 
 
 // PresignedHeadURL returns a presigned URL from the s3 (or compatible) serice.
 func (r *S3FileStorage) PresignedHeadURL(scan executionv1.Scan, filename string, duration time.Duration) (string, error) {
-	bucketName := r.Config.Bucket
-	fileUrl := r.getPresignedUrlPath(scan, filename)
-
-	rawResultHeadURL, err := r.MinioClient.PresignedHeadObject(context.Background(), bucketName, fileUrl, duration, nil)
+	pathInBucket := r.getFilePathInBucket(scan, filename)
+	rawResultHeadURL, err := r.MinioClient.PresignedHeadObject(context.Background(), r.Config.Bucket, pathInBucket, duration, nil)
 	if err != nil {
 		r.Log.Error(err, "Could not get presigned url from s3 or compatible storage provider")
 		return "", err
@@ -181,18 +177,16 @@ func (r *S3FileStorage) PresignedHeadURL(scan executionv1.Scan, filename string,
 }
 
 func (r *S3FileStorage) DeleteFile(scan executionv1.Scan, filename string) error {
-	bucketName := r.Config.Bucket
-	pathInBucket := r.getPresignedUrlPath(scan, scan.Status.RawResultFile)
-	err := r.MinioClient.RemoveObject(context.Background(), bucketName, pathInBucket, minio.RemoveObjectOptions{})
+	pathInBucket := r.getFilePathInBucket(scan, scan.Status.RawResultFile)
+	err := r.MinioClient.RemoveObject(context.Background(), r.Config.Bucket, pathInBucket, minio.RemoveObjectOptions{})
 	if err != nil && err.Error() != "The specified key does not exist." {
 		return err
 	}
 	return nil
 }
 
-func (r *S3FileStorage) getPresignedUrlPath(scan executionv1.Scan, filename string) string {
-	urlTemplate := r.Config.UrlTemplate
-	return executeUrlTemplate(urlTemplate, scan, filename)
+func (r *S3FileStorage) getFilePathInBucket(scan executionv1.Scan, filename string) string {
+	return executeUrlTemplate(r.Config.UrlTemplate, scan, filename)
 }
 
 func executeUrlTemplate(urlTemplate string, scan executionv1.Scan, filename string) string {
