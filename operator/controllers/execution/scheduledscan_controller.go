@@ -146,7 +146,7 @@ func (r *ScheduledScanReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			}
 		}
 
-		if scheduledScan.Spec.RetriggerOnScanTypeChange == true {
+		if scheduledScan.Spec.RetriggerOnScanTypeChange {
 			// generate hash for current state of the configured ScanType
 			var scanType executionv1.ScanType
 			if err := r.Get(ctx, types.NamespacedName{Name: scheduledScan.Spec.ScanSpec.ScanType, Namespace: scheduledScan.Namespace}, &scanType); err != nil {
@@ -159,7 +159,7 @@ func (r *ScheduledScanReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			scheduledScan.Status.ScanTypeHash = fmt.Sprintf("%d", hash)
 			log.V(9).Info("Setting hash:", "hash", scheduledScan.Status.ScanTypeHash, "scheduledScan", scheduledScan, "namespace", req.Namespace)
 			if err := r.Status().Patch(ctx, &scheduledScan, client.MergeFrom(oldScheduledScan)); err != nil {
-				return ctrl.Result{}, fmt.Errorf("Failed to update ScheduledScan with the current ScanType hash: %w", err)
+				return ctrl.Result{}, fmt.Errorf("failed to update ScheduledScan with the current ScanType hash: %w", err)
 			} else {
 				log.V(7).Info("Updated ScanType Hash", "scheduledScan", req.Name, "scanType", scanType.Name, "hash", hash)
 			}
@@ -203,9 +203,13 @@ func (r *ScheduledScanReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		// Recalculate next schedule
 		nextSchedule, err = getNextSchedule(r, scheduledScan, time.Now())
+		if err != nil {
+			log.Error(err, "Unable to calculate next schedule")
+			return ctrl.Result{}, err
+		}
 	}
 
-	return ctrl.Result{RequeueAfter: nextSchedule.Sub(time.Now())}, nil
+	return ctrl.Result{RequeueAfter: time.Until(nextSchedule)}, nil
 }
 
 func getNextSchedule(r *ScheduledScanReconciler, scheduledScan executionv1.ScheduledScan, now time.Time) (next time.Time, err error) {
@@ -214,7 +218,7 @@ func getNextSchedule(r *ScheduledScanReconciler, scheduledScan executionv1.Sched
 		sched, err := cron.ParseStandard(scheduledScan.Spec.Schedule)
 		if err != nil {
 			r.Recorder.Event(&scheduledScan, "Warning", "ScheduleParseError", fmt.Sprintf("Unparseable schedule %q: %v", scheduledScan.Spec.Schedule, err))
-			return time.Time{}, fmt.Errorf("Unparseable schedule %q: %v", scheduledScan.Spec.Schedule, err)
+			return time.Time{}, fmt.Errorf("unparseable schedule %q: %v", scheduledScan.Spec.Schedule, err)
 		}
 
 		// for optimization purposes, cheat a bit and start from our last observed run time
@@ -241,7 +245,7 @@ func getNextSchedule(r *ScheduledScanReconciler, scheduledScan executionv1.Sched
 		return nextSchedule, nil
 	}
 	r.Recorder.Event(&scheduledScan, "Warning", "NoScheduleOrInterval", "No valid schedule or interval found")
-	return time.Time{}, fmt.Errorf("No schedule or interval found")
+	return time.Time{}, fmt.Errorf("no schedule or interval found")
 }
 
 // Copy over securecodebox.io annotations from the scheduledScan to the created scan

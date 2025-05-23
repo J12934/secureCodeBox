@@ -59,7 +59,7 @@ func (r *ScanTypeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			log.V(9).Info("ScanType doesn't match, skipping", "scheduledScan", scheduledScan.Name, "namespace", scheduledScan.Namespace, "scanType", scanType.Name)
 			continue
 		}
-		if scheduledScan.Spec.RetriggerOnScanTypeChange == false {
+		if !scheduledScan.Spec.RetriggerOnScanTypeChange {
 			log.V(9).Info("ScheduledScan isn't configured for automatic scan retriggering, skipping", "scheduledScan", scheduledScan.Name, "namespace", scheduledScan.Namespace, "scanType", scanType.Name)
 			continue
 		}
