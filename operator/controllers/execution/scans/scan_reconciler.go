@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,7 +43,7 @@ func (r *ScanReconciler) startScan(scan *executionv1.Scan) error {
 	}
 
 	// Add s3 storage finalizer to scan
-	if !containsString(scan.ObjectMeta.Finalizers, s3StorageFinalizer) {
+	if !slices.Contains(scan.ObjectMeta.Finalizers, s3StorageFinalizer) {
 		scan.ObjectMeta.Finalizers = append(scan.ObjectMeta.Finalizers, s3StorageFinalizer)
 		if err := r.Update(context.Background(), scan); err != nil {
 			return err

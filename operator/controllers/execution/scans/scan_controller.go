@@ -8,6 +8,8 @@ import (
 	"context"
 	"time"
 
+	"slices"
+
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	batch "k8s.io/api/batch/v1"
@@ -117,7 +119,7 @@ func (r *ScanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 }
 
 func (r *ScanReconciler) handleFinalizer(scan *executionv1.Scan) error {
-	if containsString(scan.ObjectMeta.Finalizers, s3StorageFinalizer) {
+	if slices.Contains(scan.ObjectMeta.Finalizers, s3StorageFinalizer) {
 		r.Log.V(3).Info("Deleting External Files from FileStorage", "ScanUID", scan.UID)
 
 		err := r.FileStorage.DeleteFile(*scan, scan.Status.RawResultFile)
@@ -129,8 +131,7 @@ func (r *ScanReconciler) handleFinalizer(scan *executionv1.Scan) error {
 		if err != nil {
 			return err
 		}
-
-		scan.ObjectMeta.Finalizers = removeString(scan.ObjectMeta.Finalizers, s3StorageFinalizer)
+		scan.ObjectMeta.Finalizers = slices.Delete(scan.ObjectMeta.Finalizers, slices.Index(scan.ObjectMeta.Finalizers, s3StorageFinalizer), 1)
 		if err := r.Update(context.Background(), scan); err != nil {
 			return err
 		}
@@ -199,24 +200,4 @@ func (r *ScanReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&executionv1.Scan{}).
 		Owns(&batch.Job{}).
 		Complete(r)
-}
-
-func removeString(slice []string, s string) (result []string) {
-	for _, item := range slice {
-		if item == s {
-			continue
-		}
-		result = append(result, item)
-	}
-	return
-}
-
-// Helper functions to check and remove string from a slice of strings.
-func containsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
 }

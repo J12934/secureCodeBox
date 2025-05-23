@@ -7,8 +7,9 @@ package util
 import (
 	"fmt"
 
+	"slices"
+
 	config "github.com/secureCodeBox/secureCodeBox/auto-discovery/kubernetes/pkg/config"
-	"k8s.io/utils/strings/slices"
 )
 
 func CheckUniquenessOfScanNames(scanConfigs []config.ScanConfig) error {
