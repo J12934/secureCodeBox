@@ -75,12 +75,6 @@ func (r *ScanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// Handle Finalizer if the scan is getting deleted
 	if !scan.ObjectMeta.DeletionTimestamp.IsZero() {
-		// Check if this Scan has not yet been converted to new CRD
-		if scan.Status.OrderedHookStatuses == nil && scan.Status.ReadAndWriteHookStatus != nil && scan.Status.State == executionv1.ScanStateDone {
-			if err := r.migrateHookStatus(&scan); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
 		if err := r.handleFinalizer(&scan); err != nil {
 			r.Log.Error(err, "Failed to run Scan Finalizer")
 			return ctrl.Result{}, err
@@ -109,12 +103,6 @@ func (r *ScanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		if r.checkIfTTLSecondsAfterFinishedIsCompleted(&scan) {
 			err = r.deleteScan(&scan)
 		}
-	case executionv1.ScanStateReadAndWriteHookProcessing:
-		fallthrough
-	case executionv1.ScanStateReadAndWriteHookCompleted:
-		fallthrough
-	case executionv1.ScanStateReadOnlyHookProcessing:
-		err = r.migrateHookStatus(&scan)
 	}
 
 	if scan.Spec.TTLSecondsAfterFinished != nil && (scan.Status.State == executionv1.ScanStateDone || scan.Status.State == executionv1.ScanStateErrored) {

@@ -153,17 +153,14 @@ type ScanSpec struct {
 type ScanState string
 
 const (
-	ScanStateInit                       ScanState = "Init"
-	ScanStateScanning                   ScanState = "Scanning"
-	ScanStateScanCompleted              ScanState = "ScanCompleted"
-	ScanStateParsing                    ScanState = "Parsing"
-	ScanStateParseCompleted             ScanState = "ParseCompleted"
-	ScanStateHookProcessing             ScanState = "HookProcessing"
-	ScanStateReadAndWriteHookProcessing ScanState = "ReadAndWriteHookProcessing"
-	ScanStateReadAndWriteHookCompleted  ScanState = "ReadAndWriteHookCompleted"
-	ScanStateReadOnlyHookProcessing     ScanState = "ReadOnlyHookProcessing"
-	ScanStateErrored                    ScanState = "Errored"
-	ScanStateDone                       ScanState = "Done"
+	ScanStateInit           ScanState = "Init"
+	ScanStateScanning       ScanState = "Scanning"
+	ScanStateScanCompleted  ScanState = "ScanCompleted"
+	ScanStateParsing        ScanState = "Parsing"
+	ScanStateParseCompleted ScanState = "ParseCompleted"
+	ScanStateHookProcessing ScanState = "HookProcessing"
+	ScanStateErrored        ScanState = "Errored"
+	ScanStateDone           ScanState = "Done"
 )
 
 // ScanStatus defines the observed state of Scan
