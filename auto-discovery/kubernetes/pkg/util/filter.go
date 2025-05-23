@@ -49,7 +49,7 @@ func GetPredicates(client client.Client, log logr.Logger, resourceInclusionMode 
 		return getPredicatesForEnabledPerNamespace(client, log)
 	}
 
-	panic(fmt.Errorf("Inalid resourceInclusion.mode configured: '%s'. Check docs for supported modes.", resourceInclusionMode))
+	panic(fmt.Errorf("invalid resourceInclusion.mode configured: '%s'. Check docs for supported modes", resourceInclusionMode))
 }
 
 func getPredicatesForEnabledPerNamespace(client client.Client, log logr.Logger) predicate.Predicate {
