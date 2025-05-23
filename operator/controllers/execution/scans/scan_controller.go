@@ -96,9 +96,7 @@ func (r *ScanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	case executionv1.ScanStateHookProcessing:
 		err = r.executeHooks(&scan)
 	case executionv1.ScanStateErrored:
-		if r.checkIfTTLSecondsAfterFinishedIsCompleted(&scan) {
-			err = r.deleteScan(&scan)
-		}
+		fallthrough
 	case executionv1.ScanStateDone:
 		if r.checkIfTTLSecondsAfterFinishedIsCompleted(&scan) {
 			err = r.deleteScan(&scan)
