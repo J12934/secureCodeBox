@@ -23,6 +23,7 @@ env:
   KIND_BINARY_VERSION: "v0.27.0"
   HELM_VERSION: "v3.17.3"
   HELM_PLUGIN_UNITTEST: "0.5.1"
+  GO_STATICCHECK_VERSION: "2025.1.1"
 
 jobs:
   test-nodejs-scanner-test-helpers:
@@ -197,6 +198,11 @@ jobs:
           go fmt ./...
           go vet ./...
 
+      - uses: dominikh/staticcheck-action@v1.3.1
+        with:
+          version: ${{ env.GO_STATICCHECK_VERSION }}
+          working-directory: ./${{ matrix.component }}
+
       - name: Test
         working-directory: ./operator
         run: make test
@@ -235,6 +241,11 @@ jobs:
         run: |
           go fmt ./...
           go vet ./...
+
+      - uses: dominikh/staticcheck-action@v1.3.1
+        with:
+          version: ${{ env.GO_STATICCHECK_VERSION }}
+          working-directory: ./auto-discovery/kubernetes/
 
       - name: Test
         working-directory: ./auto-discovery/kubernetes/
@@ -356,6 +367,11 @@ jobs:
         run: |
           go fmt ./...
           go vet ./...
+
+      - uses: dominikh/staticcheck-action@v1.3.1
+        with:
+          version: ${{ env.GO_STATICCHECK_VERSION }}
+          working-directory: ./auto-discovery/cloud-aws/
 
       - name: Test
         working-directory: ./auto-discovery/cloud-aws/
