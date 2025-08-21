@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -23,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/secureCodeBox/secureCodeBox/auto-discovery/kubernetes/controllers"
+	config "github.com/secureCodeBox/secureCodeBox/auto-discovery/kubernetes/pkg/config"
 	"github.com/secureCodeBox/secureCodeBox/auto-discovery/kubernetes/pkg/util"
 	//+kubebuilder:scaffold:imports
 )
@@ -72,6 +74,16 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
+	}
+
+	// Initialize namespace cache if EnabledPerNamespace mode is used
+	if ctrlConfig.ResourceInclusion.Mode == config.EnabledPerNamespace {
+		ctx := context.Background()
+		if err := util.InitializeNamespaceCache(ctx, mgr.GetClient(), setupLog); err != nil {
+			setupLog.Error(err, "unable to initialize namespace cache")
+			os.Exit(1)
+		}
+		setupLog.Info("Namespace cache initialized for EnabledPerNamespace mode")
 	}
 
 	if ctrlConfig.ServiceAutoDiscovery.Enabled {
