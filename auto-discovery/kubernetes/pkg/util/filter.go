@@ -41,11 +41,12 @@ func getNamespaceName(object client.Object) string {
 func GetPredicates(client client.Client, log logr.Logger, resourceInclusionMode config.ResourceInclusionMode) predicate.Predicate {
 	log.Info("Setting up Predicate Filter", "resourceInclusionMode", resourceInclusionMode)
 
-	if resourceInclusionMode == config.EnabledPerResource {
+	switch resourceInclusionMode {
+	case config.EnabledPerResource:
 		return getPredicatesForEnabledPerResource(client, log)
-	} else if resourceInclusionMode == config.All {
+	case config.All:
 		return getPredicatesForScanAll(client, log)
-	} else if resourceInclusionMode == config.EnabledPerNamespace {
+	case config.EnabledPerNamespace:
 		return getPredicatesForEnabledPerNamespace(client, log)
 	}
 
@@ -118,7 +119,7 @@ func getPredicatesForEnabledPerNamespace(client client.Client, log logr.Logger) 
 	}
 }
 
-func getPredicatesForEnabledPerResource(client client.Client, log logr.Logger) predicate.Predicate {
+func getPredicatesForEnabledPerResource(_ client.Client, _ logr.Logger) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(event event.CreateEvent) bool {
 			if val, ok := event.Object.GetAnnotations()["auto-discovery.securecodebox.io/enabled"]; ok && val == "true" {
@@ -147,7 +148,7 @@ func getPredicatesForEnabledPerResource(client client.Client, log logr.Logger) p
 	}
 }
 
-func getPredicatesForScanAll(client client.Client, log logr.Logger) predicate.Predicate {
+func getPredicatesForScanAll(_ client.Client, _ logr.Logger) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(event event.CreateEvent) bool {
 			if val, ok := event.Object.GetAnnotations()["auto-discovery.securecodebox.io/ignore"]; ok && val == "true" {
